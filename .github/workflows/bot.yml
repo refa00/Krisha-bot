@@ -1,0 +1,230 @@
+import logging
+import os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+Application, CommandHandler, CallbackQueryHandler,
+MessageHandler, filters, ContextTypes, ConversationHandler
+)
+from parser import search_krisha
+logging.basicConfig(
+format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+# Состояния диалога
+DEAL_TYPE, CITY, DISTRICT, ROOMS, PRICE_MIN, PRICE_MAX, AREA_MIN, AREA_MAX, COMPLEX = range(9
+CITIES = {
+"Астана": "astana",
+"Алматы": "almaty",
+"Шымкент": "shymkent",
+}
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+await update.message.reply_text(
+" Привет! Я бот для поиска недвижимости на Krisha.kz\n\n"
+" Город: Астана (и другие)\n"
+" Ищу топ-5 лучших объявлений по твоим параметрам\n\n"
+"Используй /search для начала поиска\n"
+"Используй /help для справки"
+)
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+await update.message.reply_text(
+" *Как пользоваться:*\n\n"
+"/search — начать новый поиск\n"
+"/cancel — отменить текущий поиск\n\n"
+"Бот спросит тебя:\n"
+"1. Аренда или продажа\n"
+"2. Город\n"
+"3. Район (необязательно)\n"
+"4. Количество комнат\n"
+"5. Диапазон цены\n"
+"6. Площадь\n"
+"7. ЖК (необязательно)\n\n"
+"И выдаст топ-5 лучших объявлений! parse_mode='Markdown'
+",
+)
+async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+context.user_data.clear()
+keyboard = [
+[InlineKeyboardButton(" Аренда", callback_data="rent"),
+InlineKeyboardButton(" Продажа", callback_data="sale")]
+]
+await update.message.reply_text(
+" *Новый поиск*\n\nЧто тебя интересует?",
+reply_markup=InlineKeyboardMarkup(keyboard),
+parse_mode='Markdown'
+)
+return DEAL_TYPE
+async def deal_type_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+query = update.callback_query
+await query.answer()
+context.user_data['deal_type'] = query.data
+keyboard = [[InlineKeyboardButton(city, callback_data=slug)]
+for city, slug in CITIES.items()]
+await query.edit_message_text(
+" Выбери город:",
+reply_markup=InlineKeyboardMarkup(keyboard)
+)
+return CITY
+async def city_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+query = update.callback_query
+await query.answer()
+context.user_data['city'] = query.data
+await query.edit_message_text(
+" Введи район (например: *Есиль*, *Алматы*, *Байконур*)\n\n"
+"Или напиши *пропустить* чтобы не фильтровать по району",
+parse_mode='Markdown'
+)
+return DISTRICT
+async def district_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+text = update.message.text.strip()
+if text.lower() != 'пропустить':
+context.user_data['district'] = text
+else:
+context.user_data['district'] = None
+keyboard = [
+[InlineKeyboardButton("1", callback_data="1"),
+InlineKeyboardButton("2", callback_data="2"),
+InlineKeyboardButton("3", callback_data="3")],
+[InlineKeyboardButton("4", callback_data="4"),
+InlineKeyboardButton("5+", callback_data="5"),
+InlineKeyboardButton("Любое", callback_data="any")]
+]
+await update.message.reply_text(
+" Количество комнат:",
+reply_markup=InlineKeyboardMarkup(keyboard)
+)
+return ROOMS
+async def rooms_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+query = update.callback_query
+await query.answer()
+context.user_data['rooms'] = None if query.data == 'any' else query.data
+await query.edit_message_text(
+" Введи *минимальную цену* (тенге)\n\nНапример: *50000*\nИли *пропустить*",
+parse_mode='Markdown'
+)
+return PRICE_MIN
+async def price_min_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+text = update.message.text.strip()
+if text.lower() != 'пропустить':
+try:
+context.user_data['price_min'] = int(text.replace(' ', ''))
+except ValueError:
+await update.message.reply_text(" return PRICE_MIN
+Введи число или напиши *пропустить*", parse_m
+else:
+context.user_data['price_min'] = None
+await update.message.reply_text(
+" Введи *максимальную цену* (тенге)\n\nНапример: *200000*\nИли *пропустить*",
+parse_mode='Markdown'
+)
+return PRICE_MAX
+async def price_max_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+text = update.message.text.strip()
+if text.lower() != 'пропустить':
+try:
+context.user_data['price_max'] = int(text.replace(' ', ''))
+except ValueError:
+await update.message.reply_text(" return PRICE_MAX
+Введи число или напиши *пропустить*", parse_m
+else:
+context.user_data['price_max'] = None
+await update.message.reply_text(
+" Введи *минимальную площадь* (м²)\n\nНапример: *45*\nИли *пропустить*",
+parse_mode='Markdown'
+)
+return AREA_MIN
+async def area_min_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+text = update.message.text.strip()
+if text.lower() != 'пропустить':
+try:
+context.user_data['area_min'] = float(text)
+except ValueError:
+await update.message.reply_text(" return AREA_MIN
+Введи число или напиши *пропустить*", parse_m
+else:
+context.user_data['area_min'] = None
+await update.message.reply_text(
+" Введи *максимальную площадь* (м²)\n\nНапример: *80*\nИли *пропустить*",
+parse_mode='Markdown'
+)
+return AREA_MAX
+async def area_max_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+text = update.message.text.strip()
+if text.lower() != 'пропустить':
+try:
+context.user_data['area_max'] = float(text)
+except ValueError:
+await update.message.reply_text(" return AREA_MAX
+Введи число или напиши *пропустить*", parse_m
+else:
+context.user_data['area_max'] = None
+await update.message.reply_text(
+" Введи название *ЖК* (например: *Нурсая*, *Highvill*)\n\nИли *пропустить*",
+parse_mode='Markdown'
+)
+return COMPLEX
+async def complex_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+text = update.message.text.strip()
+if text.lower() != 'пропустить':
+context.user_data['complex'] = text
+else:
+context.user_data['complex'] = None
+await update.message.reply_text(" Ищу объявления, подожди...")
+params = context.user_data.copy()
+results = search_krisha(params)
+if not results:
+await update.message.reply_text(
+" По твоему запросу ничего не найдено.\n\nПопробуй изменить параметры — /search
+)
+else:
+deal_label = "Аренда" if params.get('deal_type') == 'rent' else "Продажа"
+await update.message.reply_text(
+f" *Топ-{len(results)} объявлений* ({deal_label})\n"
+f"{'─' * 30}",
+parse_mode='Markdown'
+)
+for i, ad in enumerate(results, 1):
+msg = (
+f"*#{i}* — {ad['price']}\n"
+f" {ad['address']}\n"
+f" {ad['rooms']} | {ad['area']}\n"
+)
+if ad.get('floor'):
+msg += f" Этаж: {ad['floor']}\n"
+if ad.get('description'):
+msg += f" {ad['description'][:100]}...\n"
+msg += f"\n [Открыть объявление]({ad['url']})"
+await update.message.reply_text(msg, parse_mode='Markdown', disable_web_page_prev
+await update.message.reply_text("Новый поиск — /search")
+return ConversationHandler.END
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+context.user_data.clear()
+await update.message.reply_text(" Поиск отменён. Начать заново — /search")
+return ConversationHandler.END
+def main():
+token = os.environ.get("TELEGRAM_BOT_TOKEN")
+if not token:
+raise ValueError("Нет TELEGRAM_BOT_TOKEN в переменных окружения!")
+app = Application.builder().token(token).build()
+conv_handler = ConversationHandler(
+entry_points=[CommandHandler('search', search)],
+states={
+DEAL_TYPE: [CallbackQueryHandler(deal_type_handler)],
+CITY: [CallbackQueryHandler(city_handler)],
+DISTRICT: [MessageHandler(filters.TEXT & ~filters.COMMAND, district_handler)],
+ROOMS: [CallbackQueryHandler(rooms_handler)],
+PRICE_MIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, price_min_handler)],
+PRICE_MAX: [MessageHandler(filters.TEXT & ~filters.COMMAND, price_max_handler)],
+AREA_MIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, area_min_handler)],
+AREA_MAX: [MessageHandler(filters.TEXT & ~filters.COMMAND, area_max_handler)],
+COMPLEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, complex_handler)],
+},
+fallbacks=[CommandHandler('cancel', cancel)],
+)
+app.add_handler(CommandHandler('start', start))
+app.add_handler(CommandHandler('help', help_cmd))
+app.add_handler(conv_handler)
+logger.info("Бот запущен!")
+app.run_polling(allowed_updates=Update.ALL_TYPES)
+if __name__ == '__main__':
+main()
